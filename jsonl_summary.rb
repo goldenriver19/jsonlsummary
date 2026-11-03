@@ -30,7 +30,7 @@ module JsonlSummary
     end
 
     def numeric_stats(key)
-      values = numeric_values[key].sort
+      values = numeric_values.fetch(key, []).sort
       return nil if values.empty?
 
       count = values.length
@@ -83,8 +83,12 @@ module JsonlSummary
       return 2
     end
 
-    io = path.nil? || path == "-" ? $stdin : File.open(path)
-    summary = summarize(io)
+    summary =
+      if path.nil? || path == "-"
+        summarize($stdin)
+      else
+        File.open(path) { |file| summarize(file) }
+      end
 
     output.puts "records: #{summary.record_count}"
     output.puts "keys:"
@@ -113,10 +117,6 @@ module JsonlSummary
   rescue EncodingError => e
     error.puts "jsonl_summary: #{e.message}"
     2
-  ensure
-    if io && io != $stdin && !io.closed?
-      io.close
-    end
   end
 end
 

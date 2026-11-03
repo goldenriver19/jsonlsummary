@@ -42,6 +42,15 @@ class TestJsonlSummary < Minitest::Test
     assert_equal ["x"], summary.numeric_values.keys
   end
 
+  def test_numeric_stats_does_not_create_missing_key
+    io = StringIO.new("{\"x\":1}\n")
+    summary = JsonlSummary.summarize(io)
+
+    assert_equal ["x"], summary.numeric_values.keys
+    assert_nil summary.numeric_stats("missing")
+    assert_equal ["x"], summary.numeric_values.keys
+  end
+
   def test_odd_median_and_invalid_json_line_number
     io = StringIO.new("{\"x\":1}\n{bad json}\n")
     error = assert_raises(JSON::ParserError) { JsonlSummary.summarize(io) }
