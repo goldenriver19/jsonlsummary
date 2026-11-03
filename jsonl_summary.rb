@@ -21,7 +21,7 @@ module JsonlSummary
       @record_count += 1
       record.each_key { |key| @key_counts[key] += 1 }
       record.each do |key, value|
-        next unless value.is_a?(Numeric) && !value.is_a?(TrueClass) && !value.is_a?(FalseClass)
+        next unless value.is_a?(Numeric)
         @numeric_values[key] << value
       end
     end
@@ -46,15 +46,22 @@ module JsonlSummary
 
   def self.summarize(io)
     summary = Summary.new
-    io.each_line do |line|
+    io.each_line.with_index(1) do |line, line_number|
       next if line.strip.empty?
-      summary.add(JSON.parse(line))
+      record =
+        begin
+          JSON.parse(line)
+        rescue JSON::ParserError => e
+          raise JSON::ParserError, "line #{line_number}: #{e.message}"
+        end
+      summary.add(record)
     end
     summary
   end
 
   def self.run(argv = ARGV, output = $stdout)
     path = nil
+    io = nil
     OptionParser.new do |parser|
       parser.banner = "Usage: jsonl_summary.rb [FILE]"
       parser.on("-h", "--help", "Show this help") do
@@ -66,7 +73,6 @@ module JsonlSummary
     path = argv.shift
     io = path.nil? || path == "-" ? $stdin : File.open(path)
     summary = summarize(io)
-    io.close unless io == $stdin
 
     output.puts "records: #{summary.record_count}"
     output.puts "keys:"
@@ -80,12 +86,20 @@ module JsonlSummary
       output.puts "  #{key}: count=#{stats[:count]} min=#{stats[:min]} max=#{stats[:max]} mean=#{stats[:mean]} median=#{stats[:median]}"
     end
     0
-  rescue Errno::ENOENT => e
+  rescue OptionParser::ParseError => e
+    $stderr.puts "jsonl_summary: #{e.message}"
+    2
+  rescue SystemCallError => e
     $stderr.puts "jsonl_summary: #{e.message}"
     2
   rescue JSON::ParserError => e
     $stderr.puts "jsonl_summary: invalid JSON: #{e.message}"
     2
+  rescue ArgumentError => e
+    $stderr.puts "jsonl_summary: #{e.message}"
+    2
+  ensure
+    io.close if io && io != $stdin && !io.closed?
   end
 end
 
