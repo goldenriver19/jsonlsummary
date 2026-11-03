@@ -36,6 +36,12 @@ class TestJsonlSummary < Minitest::Test
     assert_equal ["value"], summary.numeric_values.keys
   end
 
+  def test_ignores_non_finite_numeric_fields
+    io = StringIO.new("{\"x\":1.0,\"y\":1e9999}\n")
+    summary = JsonlSummary.summarize(io)
+    assert_equal ["x"], summary.numeric_values.keys
+  end
+
   def test_odd_median_and_invalid_json_line_number
     io = StringIO.new("{\"x\":1}\n{bad json}\n")
     error = assert_raises(JSON::ParserError) { JsonlSummary.summarize(io) }
@@ -69,5 +75,17 @@ class TestJsonlSummary < Minitest::Test
     ensure
       file.unlink
     end
+  end
+
+  def test_run_help_does_not_read_stdin
+    output = StringIO.new
+    status = JsonlSummary.run(["--help"], output)
+    assert_equal 0, status
+    assert_match(/Usage: jsonl_summary\.rb \[FILE\]/, output.string)
+  end
+
+  def test_run_rejects_extra_arguments
+    status = JsonlSummary.run(["first", "second"], StringIO.new)
+    assert_equal 2, status
   end
 end

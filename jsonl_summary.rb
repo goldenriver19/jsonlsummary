@@ -13,15 +13,18 @@ module JsonlSummary
       @numeric_values = Hash.new { |hash, key| hash[key] = [] }
     end
 
-    def add(record)
+    def add(record, line_number = nil)
       unless record.is_a?(Hash)
-        raise ArgumentError, "each JSONL record must be a JSON object"
+        message = "each JSONL record must be a JSON object"
+        message = "line #{line_number}: #{message}" if line_number
+        raise ArgumentError, message
       end
 
       @record_count += 1
       record.each_key { |key| @key_counts[key] += 1 }
       record.each do |key, value|
         next unless value.is_a?(Numeric)
+        next if value.respond_to?(:finite?) && !value.finite?
         @numeric_values[key] << value
       end
     end
@@ -50,27 +53,36 @@ module JsonlSummary
       next if line.strip.empty?
       record =
         begin
-          JSON.parse(line)
+          JSON.parse(line, allow_nan: false)
         rescue JSON::ParserError => e
           raise JSON::ParserError, "line #{line_number}: #{e.message}"
         end
-      summary.add(record)
+      summary.add(record, line_number)
     end
     summary
   end
 
-  def self.run(argv = ARGV, output = $stdout)
-    path = nil
-    io = nil
-    OptionParser.new do |parser|
-      parser.banner = "Usage: jsonl_summary.rb [FILE]"
-      parser.on("-h", "--help", "Show this help") do
-        output.puts parser
-        return 0
+  def self.run(argv = ARGV, output = $stdout, error = $stderr)
+    help_requested = false
+    parser = OptionParser.new do |option_parser|
+      option_parser.banner = "Usage: jsonl_summary.rb [FILE]"
+      option_parser.on("-h", "--help", "Show this help") do
+        help_requested = true
       end
-    end.parse!(argv)
+    end
+    parser.parse!(argv)
+
+    if help_requested
+      output.puts parser
+      return 0
+    end
 
     path = argv.shift
+    unless argv.empty?
+      error.puts "jsonl_summary: unexpected argument: #{argv.first}"
+      return 2
+    end
+
     io = path.nil? || path == "-" ? $stdin : File.open(path)
     summary = summarize(io)
 
@@ -87,19 +99,24 @@ module JsonlSummary
     end
     0
   rescue OptionParser::ParseError => e
-    $stderr.puts "jsonl_summary: #{e.message}"
+    error.puts "jsonl_summary: #{e.message}"
     2
   rescue SystemCallError => e
-    $stderr.puts "jsonl_summary: #{e.message}"
+    error.puts "jsonl_summary: #{e.message}"
     2
   rescue JSON::ParserError => e
-    $stderr.puts "jsonl_summary: invalid JSON: #{e.message}"
+    error.puts "jsonl_summary: invalid JSON: #{e.message}"
     2
   rescue ArgumentError => e
-    $stderr.puts "jsonl_summary: #{e.message}"
+    error.puts "jsonl_summary: #{e.message}"
+    2
+  rescue EncodingError => e
+    error.puts "jsonl_summary: #{e.message}"
     2
   ensure
-    io.close if io && io != $stdin && !io.closed?
+    if io && io != $stdin && !io.closed?
+      io.close
+    end
   end
 end
 
